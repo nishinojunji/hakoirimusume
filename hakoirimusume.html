@@ -1,1 +1,560 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>箱入り娘 パズル＆マルチレイアウトAIソルバー</title>
+  <style>
+    body {
+      font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-serif;
+      background-color: #f5f2eb;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 20px;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    h1 {
+      color: #4a3625;
+      margin: 0 0 5px 0;
+      font-size: 28px;
+    }
+    .info {
+      font-size: 20px;
+      color: #5c4632;
+      margin-bottom: 15px;
+      font-weight: bold;
+    }
+    .controls {
+      margin-bottom: 20px;
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: center;
+      align-items: center;
+    }
+    label {
+      font-weight: bold;
+      color: #4a3625;
+      font-size: 16px;
+    }
+    select {
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 4px;
+      border: 2px solid #8c6d53;
+      background-color: white;
+      font-weight: bold;
+      color: #4a3625;
+      cursor: pointer;
+      outline: none;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 16px;
+      background-color: #8c6d53;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      font-weight: bold;
+    }
+    button:hover {
+      background-color: #735942;
+    }
+    button:disabled, select:disabled {
+      background-color: #ccc;
+      border-color: #ccc;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    #solve-btn {
+      background-color: #4caf50;
+    }
+    #solve-btn:hover {
+      background-color: #388e3c;
+    }
+    #solve-btn:disabled {
+      background-color: #ccc;
+    }
+    .board-container {
+      position: relative;
+      padding-bottom: 90px;
+    }
+    .board {
+      position: relative;
+      width: 320px;
+      height: 400px;
+      background-color: #fcf8f2;
+      border: 10px solid #4a3625;
+      border-bottom: none;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+      border-radius: 8px 8px 0 0;
+    }
+    .exit-wall-left {
+      position: absolute;
+      bottom: -10px;
+      left: -10px;
+      width: 90px;
+      height: 10px;
+      background-color: #4a3625;
+    }
+    .exit-wall-right {
+      position: absolute;
+      bottom: -10px;
+      right: -10px;
+      width: 90px;
+      height: 10px;
+      background-color: #4a3625;
+    }
+    .exit-label {
+      position: absolute;
+      bottom: -35px;
+      left: 120px;
+      width: 80px;
+      text-align: center;
+      font-weight: bold;
+      color: #d9534f;
+      font-size: 16px;
+      letter-spacing: 2px;
+    }
+    .piece {
+      position: absolute;
+      box-sizing: border-box;
+      border: 2px solid #fff;
+      outline: 2px solid #4a3625;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: bold;
+      font-size: 18px;
+      cursor: grab;
+      transition: top 0.15s ease, left 0.15s ease;
+      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    .piece:active {
+      cursor: grabbing;
+    }
+    .piece-daughter { background-color: #ff6b8b; color: white; font-size: 24px; z-index: 10; }
+    .piece-vertical { background-color: #f3a661; color: #fff; }
+    .piece-horizontal { background-color: #5da2a9; color: white; }
+    .piece-small { background-color: #a393bf; color: white; }
 
+    .message {
+      display: none;
+      position: absolute;
+      top: 40%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 240px;
+      background-color: rgba(74, 54, 37, 0.95);
+      color: #fff;
+      text-align: center;
+      padding: 25px;
+      border-radius: 8px;
+      font-size: 22px;
+      font-weight: bold;
+      z-index: 100;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+    .status-text {
+      color: #d9534f;
+      font-weight: bold;
+      height: 24px;
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>箱入り娘</h1>
+  <div class="status-text" id="status-text"></div>
+  <div class="info">手数: <span id="move-count">0</span></div>
+  
+  <div class="controls">
+    <label for="layout-select">配置変更:</label>
+    <select id="layout-select"></select>
+    <button id="reset-btn">リセット</button>
+    <button id="solve-btn">自動で解く</button>
+  </div>
+
+  <div class="board-container">
+    <div class="board" id="board">
+      <div class="exit-wall-left"></div>
+      <div class="exit-wall-right"></div>
+      <div class="exit-label">出口</div>
+    </div>
+    <div class="message" id="clear-message">🎉 クリア！<br>おめでとうございます！</div>
+  </div>
+
+  <script>
+    const CELL_SIZE = 80;
+
+    // さまざまな初期配置データ（すべて同じ駒構成で配置違い）
+    const LAYOUTS = {
+      standard: {
+        name: "標準配置 (最短81手)",
+        pieces: [
+          { id: 1, name: '娘', w: 2, h: 2, r: 0, c: 1, type: 'daughter' },
+          { id: 2, name: '父親', w: 1, h: 2, r: 0, c: 0, type: 'vertical' },
+          { id: 3, name: '母親', w: 1, h: 2, r: 0, c: 3, type: 'vertical' },
+          { id: 4, name: '祖父', w: 1, h: 2, r: 2, c: 0, type: 'vertical' },
+          { id: 5, name: '祖母', w: 1, h: 2, r: 2, c: 3, type: 'vertical' },
+          { id: 6, name: '兄弟', w: 2, h: 1, r: 2, c: 1, type: 'horizontal' },
+          { id: 7, name: '小間使', w: 1, h: 1, r: 3, c: 1, type: 'small' },
+          { id: 8, name: '小間使', w: 1, h: 1, r: 3, c: 2, type: 'small' },
+          { id: 9, name: '小間使', w: 1, h: 1, r: 4, c: 0, type: 'small' },
+          { id: 10, name: '小間使', w: 1, h: 1, r: 4, c: 3, type: 'small' }
+        ]
+      },
+      easy: {
+        name: "練習用・サクッと脱出 (最短4手)",
+        pieces: [
+          { id: 1, name: '娘', w: 2, h: 2, r: 2, c: 1, type: 'daughter' },
+          { id: 2, name: '父親', w: 1, h: 2, r: 0, c: 0, type: 'vertical' },
+          { id: 3, name: '母親', w: 1, h: 2, r: 0, c: 3, type: 'vertical' },
+          { id: 4, name: '祖父', w: 1, h: 2, r: 2, c: 0, type: 'vertical' },
+          { id: 5, name: '祖母', w: 1, h: 2, r: 2, c: 3, type: 'vertical' },
+          { id: 6, name: '兄弟', w: 2, h: 1, r: 0, c: 1, type: 'horizontal' },
+          { id: 7, name: '小間使', w: 1, h: 1, r: 1, c: 1, type: 'small' },
+          { id: 8, name: '小間使', w: 1, h: 1, r: 1, c: 2, type: 'small' },
+          { id: 9, name: '小間使', w: 1, h: 1, r: 4, c: 1, type: 'small' },
+          { id: 10, name: '小間使', w: 1, h: 1, r: 4, c: 2, type: 'small' }
+        ]
+      },
+      middle: {
+        name: "中級配置・スライドアレンジ (短い手可能)",
+        pieces: [
+          { id: 1, name: '娘', w: 2, h: 2, r: 0, c: 1, type: 'daughter' },
+          { id: 2, name: '父親', w: 1, h: 2, r: 0, c: 0, type: 'vertical' },
+          { id: 3, name: '母親', w: 1, h: 2, r: 0, c: 3, type: 'vertical' },
+          { id: 4, name: '祖父', w: 1, h: 2, r: 2, c: 0, type: 'vertical' },
+          { id: 5, name: '祖母', w: 1, h: 2, r: 2, c: 3, type: 'vertical' },
+          { id: 6, name: '兄弟', w: 2, h: 1, r: 3, c: 1, type: 'horizontal' },
+          { id: 7, name: '小間使', w: 1, h: 1, r: 2, c: 1, type: 'small' },
+          { id: 8, name: '小間使', w: 1, h: 1, r: 2, c: 2, type: 'small' },
+          { id: 9, name: '小間使', w: 1, h: 1, r: 4, c: 0, type: 'small' },
+          { id: 10, name: '小間使', w: 1, h: 1, r: 4, c: 3, type: 'small' }
+        ]
+      },
+      traffic: {
+        name: "海外有名配置・交通渋滞 (パズル通向け)",
+        pieces: [
+          { id: 1, name: '娘', w: 2, h: 2, r: 0, c: 1, type: 'daughter' },
+          { id: 2, name: '父親', w: 1, h: 2, r: 0, c: 0, type: 'vertical' },
+          { id: 3, name: '母親', w: 1, h: 2, r: 0, c: 3, type: 'vertical' },
+          { id: 4, name: '祖父', w: 1, h: 2, r: 3, c: 0, type: 'vertical' },
+          { id: 5, name: '祖母', w: 1, h: 2, r: 3, c: 3, type: 'vertical' },
+          { id: 6, name: '兄弟', w: 2, h: 1, r: 2, c: 1, type: 'horizontal' },
+          { id: 7, name: '小間使', w: 1, h: 1, r: 2, c: 0, type: 'small' },
+          { id: 8, name: '小間使', w: 1, h: 1, r: 2, c: 3, type: 'small' },
+          { id: 9, name: '小間使', w: 1, h: 1, r: 3, c: 1, type: 'small' },
+          { id: 10, name: '小間使', w: 1, h: 1, r: 3, c: 2, type: 'small' }
+        ]
+      }
+    };
+
+    let pieces = [];
+    let moves = 0;
+    let gameClear = false;
+    let isAutoPlaying = false;
+    let autoPlayTimer = null;
+
+    let isDragging = false;
+    let startX = 0; startY = 0;
+    let activePieceId = null;
+
+    const board = document.getElementById('board');
+    const moveCountDisp = document.getElementById('move-count');
+    const resetBtn = document.getElementById('reset-btn');
+    const solveBtn = document.getElementById('solve-btn');
+    const layoutSelect = document.getElementById('layout-select');
+    const clearMessage = document.getElementById('clear-message');
+    const statusText = document.getElementById('status-text');
+
+    // セレクトボックスの選択肢初期化
+    function initSelectOptions() {
+      layoutSelect.innerHTML = '';
+      for (const key in LAYOUTS) {
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = LAYOUTS[key].name;
+        layoutSelect.appendChild(opt);
+      }
+    }
+
+    function initGame() {
+      stopAutoPlay();
+      
+      // 選択されている配置のデータをディープコピー
+      const currentLayoutKey = layoutSelect.value || 'standard';
+      pieces = JSON.parse(JSON.stringify(LAYOUTS[currentLayoutKey].pieces));
+      
+      moves = 0;
+      gameClear = false;
+      moveCountDisp.textContent = moves;
+      clearMessage.style.display = 'none';
+      statusText.textContent = "";
+      solveBtn.disabled = false;
+      layoutSelect.disabled = false;
+      renderPieces();
+    }
+
+    function stopAutoPlay() {
+      isAutoPlaying = false;
+      if (autoPlayTimer) clearInterval(autoPlayTimer);
+      solveBtn.disabled = false;
+      layoutSelect.disabled = false;
+    }
+
+    function getGridInState(statePieces) {
+      const grid = Array(5).fill(null).map(() => Array(4).fill(0));
+      statePieces.forEach(p => {
+        if (p.type === 'daughter' && p.r === 4) return;
+        for (let i = 0; i < p.h; i++) {
+          for (let j = 0; j < p.w; j++) {
+            if (p.r + i < 5 && p.c + j < 4) {
+              grid[p.r + i][p.c + j] = p.id;
+            }
+          }
+        }
+      });
+      return grid;
+    }
+
+    function canMoveInState(statePieces, piece, dr, dc) {
+      if (piece.type === 'daughter' && piece.r === 3 && piece.c === 1 && dr === 1 && dc === 0) {
+        return true; 
+      }
+      const nextR = piece.r + dr;
+      const nextC = piece.c + dc;
+      if (nextR < 0 || nextR + piece.h > 5 || nextC < 0 || nextC + piece.w > 4) return false;
+
+      const grid = getGridInState(statePieces);
+      for (let i = 0; i < piece.h; i++) {
+        for (let j = 0; j < piece.w; j++) {
+          const r = nextR + i;
+          const c = nextC + j;
+          if (grid[r][c] !== 0 && grid[r][c] !== piece.id) return false;
+        }
+      }
+      return true;
+    }
+
+    function renderPieces() {
+      const existingPieces = board.querySelectorAll('.piece');
+      existingPieces.forEach(el => el.remove());
+
+      pieces.forEach(p => {
+        const el = document.createElement('div');
+        el.className = `piece piece-${p.type}`;
+        el.textContent = p.name;
+        el.style.width = `${p.w * CELL_SIZE}px`;
+        el.style.height = `${p.h * CELL_SIZE}px`;
+        el.style.top = `${p.r * CELL_SIZE}px`;
+        el.style.left = `${p.c * CELL_SIZE}px`;
+
+        if (!isAutoPlaying) {
+          el.addEventListener('mousedown', (e) => onStart(e, p.id));
+          el.addEventListener('touchstart', (e) => onStart(e, p.id), { passive: true });
+        }
+
+        board.appendChild(el);
+      });
+    }
+
+    // --- 操作ロジック ---
+    function onStart(e, id) {
+      if (gameClear || isAutoPlaying) return;
+      isDragging = true;
+      activePieceId = id;
+      const touch = e.touches ? e.touches[0] : e;
+      startX = touch.clientX;
+      startY = touch.clientY;
+    }
+
+    function onMove(e) {
+      if (!isDragging || activePieceId === null || isAutoPlaying) return;
+      if (e.cancelable) e.preventDefault();
+
+      const touch = e.touches ? e.touches[0] : e;
+      const diffX = touch.clientX - startX;
+      const diffY = touch.clientY - startY;
+      const threshold = 30;
+
+      if (Math.abs(diffX) > threshold || Math.abs(diffY) > threshold) {
+        let dr = 0, dc = 0;
+        if (Math.abs(diffX) > Math.abs(diffY)) {
+          dc = diffX > 0 ? 1 : -1;
+        } else {
+          dr = diffY > 0 ? 1 : -1;
+        }
+
+        const piece = pieces.find(p => p.id === activePieceId);
+        if (piece && canMoveInState(pieces, piece, dr, dc)) {
+          piece.r += dr;
+          piece.c += dc;
+          moves++;
+          moveCountDisp.textContent = moves;
+
+          if (piece.type === 'daughter' && piece.r === 4) {
+            gameClear = true;
+            clearMessage.style.display = 'block';
+            solveBtn.disabled = true;
+          }
+          renderPieces();
+        }
+        isDragging = false;
+        activePieceId = null;
+      }
+    }
+
+    function onEnd() { isDragging = false; activePieceId = null; }
+
+    // --- AI ソルバー (形状ベース高速幅優先探索) ---
+    function getGridString(statePieces) {
+      const grid = Array(5).fill(0).map(() => Array(4).fill('.'));
+      statePieces.forEach(p => {
+        const char = p.type === 'daughter' ? 'D' : p.type === 'vertical' ? 'V' : p.type === 'horizontal' ? 'H' : 'S';
+        for (let i = 0; i < p.h; i++) {
+          for (let j = 0; j < p.w; j++) {
+            if (p.r + i < 5 && p.c + j < 4) grid[p.r + i][p.c + j] = char;
+          }
+        }
+      });
+      return grid.map(row => row.join('')).join('');
+    }
+
+    function solvePuzzle() {
+      const nodes = [];
+      const visited = new Set();
+
+      const startPieces = JSON.parse(JSON.stringify(pieces));
+      const startGridStr = getGridString(startPieces);
+
+      nodes.push({ pieces: startPieces, parent: -1, move: null });
+      visited.add(startGridStr);
+
+      let head = 0;
+      let foundNodeIdx = null;
+      const MAX_NODES = 150000; 
+
+      while (head < nodes.length && head < MAX_NODES) {
+        const currNode = nodes[head];
+        const currPieces = currNode.pieces;
+
+        const daughter = currPieces.find(p => p.type === 'daughter');
+        if (daughter.r === 4) {
+          foundNodeIdx = head;
+          break;
+        }
+
+        for (let i = 0; i < currPieces.length; i++) {
+          const p = currPieces[i];
+          const dirs = [{dr:-1,dc:0}, {dr:1,dc:0}, {dr:0,dc:-1}, {dr:0,dc:1}];
+
+          for (const d of dirs) {
+            if (canMoveInState(currPieces, p, d.dr, d.dc)) {
+              const nextPieces = currPieces.map(item => ({...item}));
+              nextPieces[i].r += d.dr;
+              nextPieces[i].c += d.dc;
+
+              const gStr = getGridString(nextPieces);
+              if (!visited.has(gStr)) {
+                visited.add(gStr);
+                nodes.push({
+                  pieces: nextPieces,
+                  parent: head,
+                  move: { id: p.id, dr: d.dr, dc: d.dc }
+                });
+              }
+            }
+          }
+        }
+        head++;
+      }
+
+      if (foundNodeIdx !== null) {
+        const path = [];
+        let curr = foundNodeIdx;
+        while (nodes[curr].parent !== -1) {
+          path.unshift(nodes[curr].move);
+          curr = nodes[curr].parent;
+        }
+        return path;
+      }
+      return null;
+    }
+
+    function startAutoSolve() {
+      if (gameClear || isAutoPlaying) return;
+
+      statusText.textContent = "最短ルートを計算中...";
+      solveBtn.disabled = true;
+      layoutSelect.disabled = true;
+
+      setTimeout(() => {
+        const solutionPath = solvePuzzle();
+
+        if (!solutionPath || solutionPath.length === 0) {
+          statusText.textContent = "ここからクリアするルートがありません！";
+          solveBtn.disabled = false;
+          layoutSelect.disabled = false;
+          return;
+        }
+
+        isAutoPlaying = true;
+        statusText.textContent = `正解を発見！あと ${solutionPath.length} 手で自動解決します。`;
+        
+        let step = 0;
+        autoPlayTimer = setInterval(() => {
+          if (step >= solutionPath.length) {
+            stopAutoPlay();
+            return;
+          }
+
+          const nextMove = solutionPath[step];
+          const p = pieces.find(item => item.id === nextMove.id);
+          if (p) {
+            p.r += nextMove.dr;
+            p.c += nextMove.dc;
+            moves++;
+            moveCountDisp.textContent = moves;
+
+            if (p.type === 'daughter' && p.r === 4) {
+              gameClear = true;
+              clearMessage.style.display = 'block';
+              statusText.textContent = "AIによる自動クリア達成！";
+              stopAutoPlay();
+              solveBtn.disabled = true;
+            }
+            renderPieces();
+          }
+          step++;
+        }, 220); // 再生速度（220ms間隔）
+
+      }, 50);
+    }
+
+    // イベント登録
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onEnd);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onEnd);
+    
+    resetBtn.addEventListener('click', initGame);
+    solveBtn.addEventListener('click', startAutoSolve);
+    layoutSelect.addEventListener('change', initGame); // 配置を変えたら即リセット＆ロード
+
+    // アプリ起動
+    initSelectOptions();
+    initGame();
+  </script>
+</body>
+</html>
